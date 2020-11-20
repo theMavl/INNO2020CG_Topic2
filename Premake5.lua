@@ -59,7 +59,7 @@ project "09. Acceleration structures"
    files {"src/acceleration_structures.h", "src/acceleration_structures.cpp"}
    files {"src/acceleration_structures_main.cpp"}
 
---[[
+
 project "10. Anti-aliasing"
    kind "ConsoleApp"
    includedirs { "lib/stb" }
@@ -72,4 +72,3 @@ project "10. Anti-aliasing"
    files {"src/acceleration_structures.h", "src/acceleration_structures.cpp"}
    files {"src/anti_aliasing.h", "src/anti_aliasing.cpp"}
    files {"src/anti_aliasing_main.cpp"}
-]]--

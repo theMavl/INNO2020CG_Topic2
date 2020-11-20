@@ -13,20 +13,53 @@ AccelerationStructures::~AccelerationStructures()
 
 bool TLAS::AABBTest(const Ray& ray) const
 {
-    return false;
+    float3 inv_ray_dir = float3(1.0) / ray.direction;
+    float3 t0 = (aabb_max - ray.position) * inv_ray_dir;
+    float3 t1 = (aabb_min - ray.position) * inv_ray_dir;
+    float3 tmin = min(t0, t1);
+    float3 tmax = max(t0, t1);
+    return maxelem(tmin) <= minelem(tmax);
 }
 
 void TLAS::AddMesh(const Mesh mesh)
 {
+    if (meshes.empty()) {
+        aabb_max = mesh.aabb_max;
+        aabb_min = mesh.aabb_min;
+    }
+
+    meshes.push_back(mesh);
+    aabb_min = min(mesh.aabb_min, aabb_min);
+    aabb_max = max(mesh.aabb_max, aabb_max);
+
 }
 
 bool cmp(const Mesh& a, const Mesh& b)
 {
-    return false;
+    return a.aabb_min.y < b.aabb_min.y;
 }
 
 void AccelerationStructures::BuildBVH()
 {
+    std::sort(meshes.begin(), meshes.end(), cmp);
+
+    auto middle = meshes.begin();
+    std::advance(middle, 2);
+    std::vector<Mesh> left_half(meshes.begin(), middle);
+    std::vector<Mesh> right_half(middle, meshes.end());
+
+    TLAS left;
+    for (auto& mesh : left_half) {
+        left.AddMesh(mesh);
+    }
+
+    TLAS right;
+    for (auto& mesh : right_half) {
+        right.AddMesh(mesh);
+    }
+
+    tlases.push_back(left);
+    tlases.push_back(right);
 }
 
 int AccelerationStructures::LoadGeometry(std::filesystem::path filename)
@@ -91,18 +124,18 @@ int AccelerationStructures::LoadGeometry(std::filesystem::path filename)
             }
             index_offset += fv;
 
-            MaterialTriangle triangle(vertices[0], vertices[1], vertices[2]);
+            MaterialTriangle* triangle = new MaterialTriangle(vertices[0], vertices[1], vertices[2]);
             tinyobj::material_t material = materials[shapes[s].mesh.material_ids[f]];
-            triangle.SetEmisive(float3(material.emission) / 255.f);
-            triangle.SetAmbient(float3(material.ambient));
-            triangle.SetDiffuse(float3(material.diffuse));
-            triangle.SetSpecular(float3(material.specular), material.shininess);
-            triangle.SetReflectiveness(material.illum == 5);
-            triangle.SetReflectivenessAndTransparency(material.illum == 5);
-            triangle.SetIor(material.ior);
+            triangle->SetEmisive(float3(material.emission) / 255.f);
+            triangle->SetAmbient(float3(material.ambient));
+            triangle->SetDiffuse(float3(material.diffuse));
+            triangle->SetSpecular(float3(material.specular), material.shininess);
+            triangle->SetReflectiveness(material.illum == 5);
+            triangle->SetReflectivenessAndTransparency(material.illum == 5);
+            triangle->SetIor(material.ior);
 
             mesh.AddTriangle(triangle);
-            material_objects.push_back(std::move(&triangle));
+            material_objects.push_back(triangle);
 
         }
         meshes.push_back(mesh);
@@ -116,14 +149,17 @@ Payload AccelerationStructures::TraceRay(const Ray& ray, const unsigned int max_
 
     MaterialTriangle* closest_object = nullptr;
     IntersectableData closest_hit_data = IntersectableData(t_max);
-    for (auto& mesh : meshes) {
-        //if (!mesh.AABBTest(ray))
-        //    continue;
-        for (auto object : mesh.Triangles()) {
-            IntersectableData data = object.Intersect(ray);
-            if (data.t > t_min && data.t < closest_hit_data.t) {
-                closest_hit_data = data;
-                closest_object = &object;
+
+    for (auto& tlas: tlases) {
+        if (!tlas.AABBTest(ray)) continue;
+        for (auto& mesh : tlas.GetMeshes()) {
+            if (!mesh.AABBTest(ray)) continue;
+            for (auto object : mesh.Triangles()) {
+                IntersectableData data = object->Intersect(ray);
+                if (data.t > t_min && data.t < closest_hit_data.t) {
+                    closest_hit_data = data;
+                    closest_object = object;
+                }
             }
         }
     }
@@ -135,32 +171,34 @@ Payload AccelerationStructures::TraceRay(const Ray& ray, const unsigned int max_
 
 float AccelerationStructures::TraceShadowRay(const Ray& ray, const float max_t) const
 {
-    for (auto& mesh : meshes) {
-        if (!mesh.AABBTest(ray))
-            continue;
-        for (auto& object : mesh.Triangles()) {
-            IntersectableData data = object.Intersect(ray);
-            if (data.t > t_min && data.t < max_t) {
-                return data.t;
+    for (auto& tlas : tlases) {
+        if (!tlas.AABBTest(ray)) continue;
+        for (auto& mesh : meshes) {
+            if (!mesh.AABBTest(ray)) continue;
+            for (auto object : mesh.Triangles()) {
+                IntersectableData data = object->Intersect(ray);
+                if (data.t > t_min && data.t < max_t) {
+                    return data.t;
+                }
             }
         }
     }
     return max_t;
 }
 
-void Mesh::AddTriangle(const MaterialTriangle triangle)
+void Mesh::AddTriangle(MaterialTriangle* triangle)
 {
 	if (triangles.empty())
-		aabb_min = aabb_max = triangle.a.position;
+		aabb_min = aabb_max = triangle->a.position;
 
 	triangles.push_back(triangle);
-	aabb_min = min(triangle.a.position, aabb_min);
-	aabb_min = min(triangle.b.position, aabb_min);
-	aabb_min = min(triangle.c.position, aabb_min);
+	aabb_min = min(triangle->a.position, aabb_min);
+	aabb_min = min(triangle->b.position, aabb_min);
+	aabb_min = min(triangle->c.position, aabb_min);
 
-	aabb_max = max(triangle.a.position, aabb_max);
-	aabb_max = max(triangle.b.position, aabb_max);
-	aabb_max = max(triangle.c.position, aabb_max);
+	aabb_max = max(triangle->a.position, aabb_max);
+	aabb_max = max(triangle->b.position, aabb_max);
+	aabb_max = max(triangle->c.position, aabb_max);
 
 }
 
