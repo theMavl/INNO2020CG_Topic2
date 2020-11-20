@@ -1,11 +1,17 @@
 #pragma once
 
+#include <filesystem>
 #include "mt_algorithm.h"
 
 class MaterialTriangle : public Triangle
 {
 public:
-	MaterialTriangle(Vertex a, Vertex b, Vertex c) : Triangle(a, b, c) { geo_normal = normalize(cross(ba, ca)); };
+	MaterialTriangle(Vertex a, Vertex b, Vertex c) : Triangle(a, b, c) { 
+		geo_normal = normalize(cross(ba, ca)); 
+		specular_exponent = 1.f;
+		ior = 1.f;
+	};
+
 	MaterialTriangle() { };
 	virtual ~MaterialTriangle() {};
 
@@ -48,7 +54,7 @@ public:
 	LightingAndShadows(short width, short height);
 	virtual ~LightingAndShadows();
 
-	virtual int LoadGeometry(std::string filename);
+	virtual int LoadGeometry(std::filesystem::path filename);
 
 	virtual void AddLight(Light* light);
 protected:
